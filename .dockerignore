@@ -1,0 +1,13 @@
+*.pyc
+env/
+.DS_Store
+.webassets-cache/
+packed.*
+*.egg-info
+build/
+dist/
+.env
+.ftpconfig
+.envrc
+*.txt.gz
+*.csv.gz

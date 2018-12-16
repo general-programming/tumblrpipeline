@@ -32,8 +32,14 @@ def worker_feeder():
         )).order_by(func.random()).limit(1).scalar()
 
         info = tumblr.blog_info(random_blog.name)
+        info_status_code = info.get("meta", {}).get("status", None) 
 
-        if info.get("meta", {}).get("status", None) in (503, 429):
+        # Handle errors
+        if info_status_code == 404:
+            print(info)
+            continue
+
+        if info_status_code in (503, 429):
             time.sleep(5)
             print(info)
             continue
@@ -43,6 +49,7 @@ def worker_feeder():
             info['blog']['posts'] // 20,
             random_blog.name
         ))
+
         for offset in range(0, info['blog']['posts'] + 20, 20):
             redis.sadd("tumblr:queue:import", json.dumps({
                 "name": random_blog.name,
@@ -62,7 +69,7 @@ def worker_repusher():
             started, work = raw_work.split(";", 1)
             started_delta = (time.time() - float(started))
 
-            if started_delta > 60:
+            if started_delta > 180:
                 print("Requing work that has been idle for %s seconds." % (started_delta))
                 redis.srem("tumblr:queue:import:working", raw_work)
                 redis.sadd("tumblr:queue:import", work)

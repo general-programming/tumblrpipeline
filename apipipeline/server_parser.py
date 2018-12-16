@@ -30,7 +30,7 @@ def add_bulk(db, model_type, key):
         except (TypeError, json.decoder.JSONDecodeError):
             continue
 
-        new_item = model.create_from_metadata(db, item)
+        new_item = model.create_from_metadata(db, item, insert_only=True)
         i += 1
         item_count += 1
         if i % 250 == 0:

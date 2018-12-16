@@ -61,10 +61,15 @@ class BlogManager(object):
 
         # Get posts of the offset.
         posts_response = self.get_posts(name, offset)
+        post_status = posts_response.get("meta", {}).get("status", None) 
 
         # Handle errors
+        if post_status == 404:
+            self.log(posts_response)
+            return
+
         if (
-            posts_response.get("meta", {}).get("status", None) in (502, 503)
+            post_status in (502, 503, 429)
             or "posts" not in posts_response
         ):
             self.log(posts_response)

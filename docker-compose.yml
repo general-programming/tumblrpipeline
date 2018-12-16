@@ -2,6 +2,7 @@ version: '2'
 services:
   fetcher:
     build: .
+    image: generalprogramming/tumblr-api-pipeline
     restart: always
     command: "python3 apipipeline/client_fetch_posts.py"
     env_file: .env

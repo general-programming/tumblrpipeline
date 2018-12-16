@@ -22,7 +22,7 @@ class BlogManager(object):
         self.running = True
 
     def log(self, *args):
-        print(f"[{threading.current_thread().name}]", *args)
+        print(f"[{threading.current_thread().name}]", *args, flush=True)
 
     def add(self, data, oldest=None):
         # Set timestamps.

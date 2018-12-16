@@ -1,14 +1,14 @@
 version: '2'
 services:
   parser:
-    image: registry.nepeat.com/tumblrapipipeline
+    image: generalprogramming/tumblr-api-pipeline
     build: .
     restart: always
     command: "python3 apipipeline/server_parser.py"
     env_file: .env
 
   queue_loader:
-    image: registry.nepeat.com/tumblrapipipeline
+    image: generalprogramming/tumblr-api-pipeline
     build: .
     restart: always
     command: "python3 apipipeline/server_load_queue.py"

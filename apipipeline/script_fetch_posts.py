@@ -10,14 +10,12 @@ import json
 
 from apipipeline import sentry_sdk
 from apipipeline.connections import create_tumblr, create_redis
-from apipipeline.model import Blog, sm
 
 
 class BlogManager(object):
     def __init__(self):
         self.tumblr = create_tumblr()
         self.redis = create_redis()
-        self.db = sm()
         self.bad = collections.defaultdict(lambda: 0)
 
         self.last_request = time.time()

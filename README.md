@@ -15,6 +15,7 @@ docker-compose up -d
 ## Environs
 Get these variables from tumblr's API console with Show Keys.
 https://api.tumblr.com/console/calls/user/info
+* WORKER_NAME - Defaults to anonymous.
 * TUMBLR_CONSUMER_KEY - Required as a minimum.
 * TUMBLR_CONSUMER_SECRET
 * TUMBLR_TOKEN

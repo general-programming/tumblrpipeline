@@ -51,6 +51,8 @@ class BlogManager(object):
         return self.tumblr.posts(name, offset=offset)
 
     def process(self, name, offset, last_crawl):
+        added_posts = 0
+
         if self.bad[name] >= 5:
             if self.bad[name] != 999:
                 self.log(f"All posts crawled for {name}. (Probarly)")
@@ -74,12 +76,17 @@ class BlogManager(object):
         posts = posts_response["posts"]
         for post in posts:
             post_ok = self.add(post, last_crawl)
-            if not post_ok:
+            if post_ok:
+                added_posts += 1
+            else:
                 self.bad[name] += 1
                 continue
 
-        # Give a handy view of how many things are left in the queue.
-        self.log(f"Got 20 posts for '{name}'.")
+        # Print every time a fetch is completed and pushed.
+        self.log(f"{len(posts)} @ '{name}'.")
+
+        # This is not secure but have some honor!
+        self.redis.hincrby("tumblr:work_stats", os.environ.get("WORKER_NAME"), len(posts))
 
     def work(self):
         while self.running:

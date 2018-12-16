@@ -11,3 +11,4 @@ dist/
 .envrc
 *.txt.gz
 *.csv.gz
+node_modules/*

@@ -9,6 +9,7 @@ running = True
 
 def add_bulk(db, model_type, key):
     start = time.time()
+    before_commit = time.time()
 
     if model_type == "blogs":
         model = Blog
@@ -17,6 +18,7 @@ def add_bulk(db, model_type, key):
 
     raw_items = redis.smembers(key)
     i = 0
+    item_count = 0
 
     while True:
         raw_item = redis.spop(key)
@@ -30,8 +32,12 @@ def add_bulk(db, model_type, key):
 
         new_item = model.create_from_metadata(db, item)
         i += 1
-        if i % 100 == 0:
+        item_count += 1
+        if i % 150 == 0:
             db.commit()
+            delta_commit = time.time() - before_commit
+            print(f"Took {delta_commit} seconds to generate and commit 150 items.", flush=True)
+            before_commit = time.time()
             i = 0
 
     db.commit()
@@ -39,7 +45,7 @@ def add_bulk(db, model_type, key):
     # Print time.
     end = time.time()
     total_time = float(end - start)
-    print(f"Took {total_time} seconds to add all {model_type}.", flush=True)
+    print(f"Took {total_time} seconds to add all {item_count} {model_type}.", flush=True)
 
 def worker():
     db = sm()

@@ -11,6 +11,9 @@ import json
 from apipipeline import sentry_sdk
 from apipipeline.connections import create_tumblr, create_redis
 
+class ReturnJob(Exception):
+    pass
+
 
 class BlogManager(object):
     def __init__(self):
@@ -66,7 +69,7 @@ class BlogManager(object):
         # Handle errors
         if post_status == 404:
             self.log(posts_response)
-            return
+            raise ReturnJob
 
         if (
             post_status in (502, 503, 429)
@@ -91,7 +94,7 @@ class BlogManager(object):
         self.log(f"{len(posts)} @ '{name}'.")
 
         # This is not secure but have some honor!
-        self.redis.hincrby("tumblr:work_stats", os.environ.get("WORKER_NAME"), len(posts))
+        self.redis.hincrby("tumblr:work_stats", os.environ.get("WORKER_NAME", "anonymous"), len(posts))
 
     def work(self):
         while self.running:
@@ -107,12 +110,14 @@ class BlogManager(object):
             
             try:
                 item = json.loads(raw_item)
-            except json.decoder.JSONDecodeError:
+            except (TypeError, json.decoder.JSONDecodeError):
                 continue
 
             try:
                 self.process(item["name"], item["offset"], float(item["last_crawl"]))
                 self.redis.srem("tumblr:queue:import:working", started_prefix % (started_time, raw_item))
+            except ReturnJob:
+                pass
             except:
                 if sentry_sdk:
                     sentry_sdk.capture_exception()

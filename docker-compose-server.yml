@@ -14,7 +14,7 @@ services:
       REDIS_PORT: 6379
     env_file: .env
 
-  parser:
+  queue_loader:
     image: registry.nepeat.com/tumblrapipipeline
     build: .
     restart: always

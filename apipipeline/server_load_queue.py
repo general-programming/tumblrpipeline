@@ -70,6 +70,7 @@ def worker_feeder():
         if info.get("meta", {}).get("status", None) in (503, 429):
             time.sleep(5)
             print(info)
+            continue
 
         # Shoot the job off.
         print("Adding %s offsets for %s" % (

@@ -1,0 +1,8 @@
+version: '2'
+services:
+  fetcher:
+    image: registry.nepeat.com/tumblrapipipeline
+    build: .
+    restart: always
+    command: "python3 apipipeline/script_fetch_posts.py"
+    env_file: .env

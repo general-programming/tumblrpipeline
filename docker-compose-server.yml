@@ -1,7 +1,25 @@
 version: '2'
 services:
-  fetcher:
+  redis:
+    image: redis:alpine
+    restart: always
+    
+  parser:
+    image: registry.nepeat.com/tumblrapipipeline
     build: .
     restart: always
-    command: "python3 apipipeline/script_fetch_posts.py"
+    command: "python3 apipipeline/server_parser.py"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    env_file: .env
+
+  parser:
+    image: registry.nepeat.com/tumblrapipipeline
+    build: .
+    restart: always
+    command: "python3 apipipeline/server_load_queue.py"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     env_file: .env

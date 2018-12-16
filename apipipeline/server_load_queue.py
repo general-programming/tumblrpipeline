@@ -1,3 +1,4 @@
+import random
 import threading
 import time
 import json
@@ -10,6 +11,36 @@ from apipipeline.model import Blog, Post, sm
 
 redis = create_redis()
 running = True
+
+def load_blog(db, redis, tumblr, blog):
+    info = tumblr.blog_info(blog.name)
+    info_status_code = info.get("meta", {}).get("status", None) 
+
+    # Handle errors
+    if info_status_code == 404:
+        print(info)
+        return
+
+    if info_status_code in (503, 429):
+        time.sleep(5)
+        print(info)
+        return
+
+    # Shoot the job off.
+    print("Adding %s offsets for %s" % (
+        info['blog']['posts'] // 20,
+        blog.name
+    ), flush=True)
+
+    for offset in range(0, info['blog']['posts'] + 20, 20):
+        redis.sadd("tumblr:queue:import", json.dumps({
+            "name": blog.name,
+            "offset": offset,
+            "last_crawl": str(blog.last_crawl_update.timestamp()) if blog.last_crawl_update else "0"
+        }))
+
+    blog.last_crawl_update = blog.updated
+    db.commit()
 
 def worker_feeder():
     global running
@@ -26,39 +57,18 @@ def worker_feeder():
             time.sleep(1)
             continue
 
-        random_blog = db.query(Blog).filter(or_(
+        random_blogs = db.query(Blog).filter(or_(
             Blog.updated != Blog.last_crawl_update,
             Blog.last_crawl_update == None
-        )).order_by(func.random()).limit(1).scalar()
+        )).order_by(func.random()).limit(random.randint(1, 25)).all()
 
-        info = tumblr.blog_info(random_blog.name)
-        info_status_code = info.get("meta", {}).get("status", None) 
+        if not random_blogs:
+            print("No blogs left to add.")
+            time.sleep(15)
 
-        # Handle errors
-        if info_status_code == 404:
-            print(info)
-            continue
+        for blog in random_blogs:
+            load_blog(db, redis, tumblr, blog)
 
-        if info_status_code in (503, 429):
-            time.sleep(5)
-            print(info)
-            continue
-
-        # Shoot the job off.
-        print("Adding %s offsets for %s" % (
-            info['blog']['posts'] // 20,
-            random_blog.name
-        ))
-
-        for offset in range(0, info['blog']['posts'] + 20, 20):
-            redis.sadd("tumblr:queue:import", json.dumps({
-                "name": random_blog.name,
-                "offset": offset,
-                "last_crawl": str(random_blog.last_crawl_update.timestamp()) if random_blog.last_crawl_update else "0"
-            }))
-
-        random_blog.last_crawl_update = random_blog.updated
-        db.commit()
 
 def worker_repusher():
     global running

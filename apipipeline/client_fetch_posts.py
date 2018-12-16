@@ -42,8 +42,8 @@ class BlogManager(object):
     def get_posts(self, name, offset):
         # Limit us to 5 req/s
         last_delta = (time.time() - self.last_request)
-        if last_delta < 0.25:
-            time.sleep(0.25 - last_delta)
+        if last_delta < 0.20:
+            time.sleep(0.20 - last_delta)
 
         # Update the time and return the posts.
         self.last_request = time.time()

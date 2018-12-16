@@ -11,40 +11,6 @@ from apipipeline.model import Blog, Post, sm
 redis = create_redis()
 running = True
 
-def add_bulk(db, model_type, key):
-    start = time.time()
-
-    if model_type == "blogs":
-        model = Blog
-    elif model_type == "posts":
-        model = Post
-
-    raw_items = redis.smembers(key)
-    i = 0
-
-    while True:
-        raw_item = redis.spop(key)
-        if not raw_item:
-            break
-
-        try:
-            item = json.loads(raw_item)
-        except (TypeError, json.decoder.JSONDecodeError):
-            continue
-
-        new_item = model.create_from_metadata(db, item)
-        i += 1
-        if i % 100 == 0:
-            db.commit()
-            i = 0
-
-    db.commit()
-
-    # Print time.
-    end = time.time()
-    total_time = float(end - start)
-    print(f"Took {total_time} seconds to add all {model_type}.", flush=True)
-
 def worker_feeder():
     global running
     db = sm()
@@ -116,6 +82,10 @@ if __name__ == "__main__":
     # Thread holding
     try:
         while running:
+            # If the any thread is dead, stop running.
+            for t in threads:
+                if not t.is_alive():
+                    running = False
             time.sleep(1)
     except KeyboardInterrupt:
         print("Stopping!")

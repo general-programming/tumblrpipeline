@@ -5,6 +5,8 @@ import datetime
 from urllib.parse import urlparse
 from contextlib import contextmanager
 
+from apipipeline.connections import create_redis
+
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, BigInteger, DateTime, Unicode, create_engine, inspect
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY, insert
 from sqlalchemy.ext.declarative import declarative_base
@@ -45,6 +47,8 @@ def session_scope():
     finally:
         session.close()
 
+db_redis = create_redis()
+
 
 class Post(Base):
     __tablename__ = 'posts'
@@ -58,9 +62,12 @@ class Post(Base):
     data = Column(JSONB, nullable=False)
 
     @classmethod
-    def create_from_metadata(cls, db, info):
+    def create_from_metadata(cls, db, info, insert_only=False):
         # Try to work with an existing blog object first.
-        post_object = db.query(Post).filter(Post.tumblr_id == info["id"]).scalar()
+        if insert_only:
+            post_object = None
+        else:
+            post_object = db.query(Post).filter(Post.tumblr_id == info["id"]).scalar()
 
         # Setup the new data to update.
         post_data = dict(
@@ -75,24 +82,28 @@ class Post(Base):
                 getattr(post_object, "posted", datetime.datetime.fromtimestamp(post_epoch))
             )
 
-        # Update/add blog entries
-        author = []
-
-        if "blog" in info:
-            updated_blog_data = info["blog"]
-            if "uuid" in updated_blog_data:
-                author.append(Blog.create_from_metadata(db, info.get("blog")))
-                db.flush()
-
         # Set the author id if it is not set
-        if not post_object or not post_object.author_id:
+        if (not post_object or not post_object.author_id) and "blog" in info:
             blog_name = info.get("blog_name", "")
-            if not author:
+            author_id = db_redis.hget("tumblr:blogids", blog_name)
+
+            # Create an author ID if it is not in cache.
+            if not author_id:
                 author = db.query(Blog).filter(Blog.name == blog_name).order_by(Blog.updated.desc()).all()
-            try:
-                post_data["author_id"] = author[0].id
-            except IndexError:
-                pass
+
+                try:
+                    author_id = author[0].id
+                except IndexError:
+                    if "uuid" in info["blog"]:
+                        new_author = Blog.create_from_metadata(db, info.get("blog"))
+                        db.flush()
+                        author_id = new_author.id
+
+                if author_id:
+                    db_redis.hset("tumblr:blogids", blog_name, author_id)
+
+            if author_id:
+                post_data["author_id"] = author_id
 
         # Insert what's left of the data into the data
         post_data["data"] = info
@@ -106,13 +117,14 @@ class Post(Base):
             db.execute(insert(Post).values(
                 **post_data
             ).on_conflict_do_update(index_elements=["tumblr_id", "author_id"], set_=post_data))
-            post_object = db.query(Post).filter(
-                Post.tumblr_id == post_data["tumblr_id"]
-            ).scalar()
+
+            if not insert_only:
+                post_object = db.query(Post).filter(
+                    Post.tumblr_id == post_data["tumblr_id"]
+                ).scalar()
         else:
             for key, value in post_data.items():
                 setattr(post_object, key, value)
-        db.flush()
 
         return post_object
 
@@ -129,7 +141,7 @@ class Blog(Base):
     extra_meta = Column(JSONB)
 
     @classmethod
-    def create_from_metadata(cls, db, info):
+    def create_from_metadata(cls, db, info, insert_only=False):
         if "blog" in info:
             blog_info = info["blog"]
         else:
@@ -166,6 +178,7 @@ class Blog(Base):
             db.execute(insert(Blog).values(
                 **blog_data
             ).on_conflict_do_update(index_elements=["tumblr_uid"], set_=blog_data))
+
             blog_object = db.query(Blog).filter(
                 Blog.tumblr_uid == blog_data["tumblr_uid"]
             ).scalar()

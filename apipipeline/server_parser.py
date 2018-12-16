@@ -33,10 +33,10 @@ def add_bulk(db, model_type, key):
         new_item = model.create_from_metadata(db, item)
         i += 1
         item_count += 1
-        if i % 150 == 0:
+        if i % 250 == 0:
             db.commit()
             delta_commit = time.time() - before_commit
-            print(f"Took {delta_commit} seconds to generate and commit 150 items.", flush=True)
+            print(f"Took {delta_commit} seconds to generate and commit 250 items.", flush=True)
             before_commit = time.time()
             i = 0
 
@@ -48,9 +48,10 @@ def add_bulk(db, model_type, key):
     print(f"Took {total_time} seconds to add all {item_count} {model_type}.", flush=True)
 
 def worker():
+    global running
     db = sm()
 
-    while True:
+    while running:
         post_count = redis.scard("tumblr:queue:posts")
         blog_count = redis.scard("tumblr:queue:blogs")
     
@@ -70,6 +71,8 @@ def worker():
             add_bulk(db, "posts", "tumblr:queue:posts")
 
 def main():
+    global running
+
     try:
         worker()
     except KeyboardInterrupt:

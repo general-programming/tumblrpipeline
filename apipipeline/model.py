@@ -15,7 +15,10 @@ from apipipeline.utils import clean_data
 
 debug = os.environ.get('DEBUG', False)
 
-engine = create_engine(os.environ["POSTGRES_URL"], convert_unicode=True, pool_recycle=3600)
+if "POSTGRES_URL" not in os.environ or not os.environ["POSTGRES_URL"]:
+    print("POSTGRES_URL is missing. This is bad if you're running server processes.")
+
+engine = create_engine(os.environ.get("POSTGRES_URL", "postgres://placeholder/placeholder"), convert_unicode=True, pool_recycle=3600)
 
 if debug:
     engine.echo = True

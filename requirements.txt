@@ -1,13 +1,8 @@
 alembic
-Flask
-gevent
 hiredis
 redis==2.10.6  # https://github.com/celery/celery/issues/5175
 PyTumblr
 psycopg2
-flower
-celery
 SQLAlchemy
-gunicorn
 classtools
-sentry-sdk[flask]
+sentry-sdk

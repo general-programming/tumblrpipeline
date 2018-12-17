@@ -14,6 +14,19 @@ from apipipeline.connections import create_tumblr, create_redis
 class ReturnJob(Exception):
     pass
 
+FETCH_SCRIPT = """
+redis.replicate_commands()
+local time = redis.call('TIME')[1]
+local item = redis.call('SPOP', 'tumblr:queue:import')
+
+if item then
+    local new_item = time .. ';' .. item
+    local updated = redis.call('SADD', 'tumblr:queue:import:working', new_item)
+else
+    return nil, nil
+end
+
+return { time, item }"""
 
 class BlogManager(object):
     def __init__(self):
@@ -23,6 +36,13 @@ class BlogManager(object):
 
         self.last_request = time.time()
         self.running = True
+        self._fetch_item = None
+
+    def fetch_item(self):
+        if not self._fetch_item:
+            self._fetch_item = self.redis.register_script(FETCH_SCRIPT)
+
+        return self._fetch_item()
 
     def log(self, *args):
         print(f"[{threading.current_thread().name}]", *args, flush=True)
@@ -56,7 +76,7 @@ class BlogManager(object):
     def process(self, name, offset, last_crawl):
         added_posts = 0
 
-        if self.bad[name] >= 5:
+        if self.bad[name] >= 15:
             if self.bad[name] != 999:
                 self.log(f"All posts crawled for {name}. (Probarly)")
                 self.bad[name] = 999
@@ -103,11 +123,8 @@ class BlogManager(object):
                 continue
 
             started_prefix = "%s;%s"
-            started_time = int(time.time())
+            started_time, raw_item = self.fetch_item()
 
-            raw_item = self.redis.spop("tumblr:queue:import")
-            self.redis.sadd("tumblr:queue:import:working", started_prefix % (started_time, raw_item))
-            
             try:
                 item = json.loads(raw_item)
             except (TypeError, json.decoder.JSONDecodeError):

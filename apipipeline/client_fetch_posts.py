@@ -123,9 +123,9 @@ class BlogManager(object):
                 continue
 
             started_prefix = "%s;%s"
-            started_time, raw_item = self.fetch_item()
 
             try:
+                started_time, raw_item = self.fetch_item()
                 item = json.loads(raw_item)
             except (TypeError, json.decoder.JSONDecodeError):
                 continue

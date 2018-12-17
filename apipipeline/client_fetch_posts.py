@@ -66,7 +66,7 @@ class BlogManager(object):
         # Sleep if the queue is larger than 50K posts.
         queue_len = self.redis.scard("tumblr:queue:posts")
         while queue_len > 50000:
-            print(f"Queue is at {queue_len}.")
+            self.log(f"Queue is at {queue_len}.")
             time.sleep(5)
             queue_len = self.redis.scard("tumblr:queue:posts")
 

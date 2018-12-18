@@ -12,3 +12,5 @@ dist/
 *.txt.gz
 *.csv.gz
 node_modules/
+urllists/
+scripts/blogs

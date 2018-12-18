@@ -1,3 +1,5 @@
+import os
+import math
 import random
 import threading
 import time
@@ -12,23 +14,42 @@ from apipipeline.model import Blog, Post, sm
 redis = create_redis()
 running = True
 
-def load_blog(db, redis, tumblr, blog):
-    info = tumblr.blog_info(blog.name)
+# Worker feeder
+
+def load_blog(db, redis, tumblr, blog, use_db=False):
+    if not use_db:
+        info = tumblr.blog_info(blog.name)
+    else:
+        info = {
+            "meta": {"status": 200},
+            "blog": blog.data
+        }
+
+        # In case bad data gets saved.
+        if "posts" not in blog.data or not blog.data["posts"]:
+            info = tumblr.blog_info(blog.name)
+
     info_status_code = info.get("meta", {}).get("status", None) 
 
     # Handle errors
     if info_status_code == 404:
         print(info)
+        blog.last_crawl_update = blog.updated
+        db.commit()
         return
 
-    if info_status_code in (503, 429):
+    if info_status_code in (503, 504, 429):
         time.sleep(5)
+        print(info)
+        return
+
+    if "blog" not in info or "posts" not in info["blog"]:
         print(info)
         return
 
     # Shoot the job off.
     print("Adding %s offsets for %s" % (
-        info['blog']['posts'] // 20,
+        math.ceil(info['blog']['posts'] / 20),
         blog.name
     ), flush=True)
 
@@ -42,6 +63,34 @@ def load_blog(db, redis, tumblr, blog):
     blog.last_crawl_update = blog.updated
     db.commit()
 
+def get_blogs(db, manual_count):
+    use_db = False
+    blogs = []
+
+    if manual_count == 0:
+        blogs = db.query(Blog).filter(or_(
+            Blog.updated != Blog.last_crawl_update,
+            Blog.last_crawl_update == None
+        )).order_by(func.random()).limit(random.randint(1, 25)).all()
+        for blog in blogs:
+            yield blog, use_db
+    else:
+        use_db = True
+
+        while True:
+            blog_name = redis.spop("tumblr:queue:manualqueue")
+            if not blog_name:
+                break
+
+            new_blog = db.query(Blog).filter(Blog.name == blog_name).order_by(Blog.updated.desc()).all()
+            if new_blog:
+                yield new_blog[0], use_db
+
+    # Force sleep if there are no blogs.
+    if not blogs:
+        print("No blogs left to add.")
+        time.sleep(15)
+
 def worker_feeder():
     global running
     db = sm()
@@ -51,24 +100,18 @@ def worker_feeder():
     while running:
         import_count = redis.scard("tumblr:queue:import")
         working_count = redis.scard("tumblr:queue:import:working")
+        manual_count = redis.scard("tumblr:queue:manualqueue")
+
         print(f"{import_count} offsets queued. {working_count} being worked on.", flush=True)
 
-        if import_count > 420:  # Archiving secured.
+        if import_count > 420 and manual_count <= 0:  # Archiving secured.
             time.sleep(1)
             continue
 
-        random_blogs = db.query(Blog).filter(or_(
-            Blog.updated != Blog.last_crawl_update,
-            Blog.last_crawl_update == None
-        )).order_by(func.random()).limit(random.randint(1, 25)).all()
+        for blog, use_db in get_blogs(db, manual_count):
+            load_blog(db, redis, tumblr, blog, use_db)
 
-        if not random_blogs:
-            print("No blogs left to add.")
-            time.sleep(15)
-
-        for blog in random_blogs:
-            load_blog(db, redis, tumblr, blog)
-
+# Worker repusher
 
 def worker_repusher():
     global running
@@ -88,9 +131,12 @@ def worker_repusher():
 
 if __name__ == "__main__":
     threads = [
-        threading.Thread(target=worker_feeder),
         threading.Thread(target=worker_repusher)
     ]
+
+    # Start multiple pushers
+    for x in range(0, int(os.environ.get("WORKERS", 4))):
+        threads.append(threading.Thread(target=worker_feeder))
 
     # Thread startup
     for t in threads:

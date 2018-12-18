@@ -7,8 +7,10 @@ const redis = require('redis');
 // Constants
 const QUEUE_KEYS = [,
   "tumblr:queue:posts",
+  "tumblr:queue:blogs",
   "tumblr:queue:import",
-  "tumblr:queue:import:working"
+  "tumblr:queue:import:working",
+  "tumblr:queue:manualqueue"
 ];
 
 // Server setup

@@ -1,55 +1,94 @@
+import os
+import threading
 import time
 import json
+
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.dialects.postgresql import JSONB, ARRAY, insert
 
 from apipipeline.connections import create_redis
 from apipipeline.model import Blog, Post, sm
 
-redis = create_redis()
 running = True
 
-def add_bulk(db, model_type, key):
-    start = time.time()
-    before_commit = time.time()
+def get_item(db, model, raw_item):
+    try:
+        item = json.loads(raw_item)
+    except (TypeError, json.decoder.JSONDecodeError):
+        return
 
+    return model.create_from_metadata(db, item, insert_only=True)
+
+def add_bulk(db, redis, model_type, key):
     if model_type == "blogs":
         model = Blog
+        uniques = ["tumblr_id"]
     elif model_type == "posts":
         model = Post
+        uniques = ["tumblr_id", "author_id"]
 
-    raw_items = redis.smembers(key)
-    i = 0
-    item_count = 0
+    before_commit = time.time()
+    bulks = []
 
     while True:
-        raw_item = redis.spop(key)
-        if not raw_item:
+        raw_items = redis.spop(key, count=500)
+        if not raw_items:
             break
 
-        try:
-            item = json.loads(raw_item)
-        except (TypeError, json.decoder.JSONDecodeError):
-            continue
+        for raw_item in raw_items:
+            new_bulk = get_item(db, model, raw_item)
+            if new_bulk:
+                bulks.append(new_bulk)
 
-        new_item = model.create_from_metadata(db, item, insert_only=True)
-        i += 1
-        item_count += 1
-        if i % 250 == 0:
-            db.commit()
-            delta_commit = time.time() - before_commit
-            print(f"Took {delta_commit} seconds to generate and commit 250 items.", flush=True)
-            before_commit = time.time()
-            i = 0
+            if bulks and len(bulks) % 500 == 0:
+                fast_commit = True
 
+                try:
+                    db.bulk_insert_mappings(
+                        model,
+                        bulks
+                    )
+                    db.commit()
+                except IntegrityError:
+                    fast_commit = False
+                    db.rollback()
+                    for data in bulks:
+                        db.execute(insert(model).values(
+                            **data
+                        ).on_conflict_do_nothing(index_elements=uniques))
+                    db.commit()
+
+                # stats
+                delta_commit = time.time() - before_commit
+                print(f"Took {delta_commit} seconds to generate and commit {len(bulks)} items. {fast_commit}", flush=True)
+                before_commit = time.time()
+                bulks.clear()
+
+    fast_commit = True
+    try:
+        db.bulk_insert_mappings(
+            model,
+            bulks
+        )
+        db.commit()
+    except IntegrityError:
+        fast_commit = False
+        db.rollback()
+        for data in bulks:
+            db.execute(insert(model).values(
+                **data
+            ).on_conflict_do_nothing(index_elements=uniques))
     db.commit()
 
-    # Print time.
-    end = time.time()
-    total_time = float(end - start)
-    print(f"Took {total_time} seconds to add all {item_count} {model_type}.", flush=True)
+    # Final stats print
+    delta_commit = time.time() - before_commit
+    print(f"Took {delta_commit} seconds to generate and commit {len(bulks)} items. {fast_commit}", flush=True)
+    before_commit = time.time()
 
 def worker():
     global running
     db = sm()
+    redis = create_redis()
 
     while running:
         post_count = redis.scard("tumblr:queue:posts")
@@ -64,18 +103,35 @@ def worker():
 
         # Parse blogs
         if blog_count > 0:
-            add_bulk(db, "blogs", "tumblr:queue:blogs")
+            add_bulk(db, redis, "blogs", "tumblr:queue:blogs")
 
         # Parse posts
         if post_count > 0:
-            add_bulk(db, "posts", "tumblr:queue:posts")
+            add_bulk(db, redis, "posts", "tumblr:queue:posts")
 
-def main():
-    global running
+if __name__ == "__main__":
+    threads = []
 
+    # Start multiple parsers
+    for x in range(0, int(os.environ.get("WORKERS", 3))):
+        threads.append(threading.Thread(target=worker))
+
+    # Thread startup
+    for t in threads:
+        t.start()
+
+    # Thread holding
     try:
-        worker()
+        while running:
+            # If the any thread is dead, stop running.
+            for t in threads:
+                if not t.is_alive():
+                    running = False
+            time.sleep(1)
     except KeyboardInterrupt:
+        print("Stopping!")
         running = False
 
-main()
+    # Wait for all threads to stop before shutting down.
+    for t in threads:
+        t.join()
